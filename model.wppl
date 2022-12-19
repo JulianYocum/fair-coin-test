@@ -1,0 +1,98 @@
+const Hs = ['Fair','Unfair', 'Lag1',  'Flop', 'HMM']
+
+var model3 = function(seq) {
+    // Your model code here, using
+    // pSwitch_12, pSwitch_21, pHeads_1, pHeads_2, observations
+    var H = sample(Categorical({vs: Hs, ps: [0, .5 * 1/3, .5, .5 * 1/3, .5 * 1/3]}))
+    var isLag1 = H == 'Lag1'
+    
+    var weight = .80 // sample(Uniform({a:.7,b:1}))
+    var flopweight = .9
+    var pswitch = .80 // sample(Uniform({a:.7,b:1}))
+
+    var pSwitch_12 = H=='Fair'? 0 : (H=='Unfair'? 0 : (H=='Lag1'? pswitch: (H=='Flop'? .97 : .25)))
+    var pSwitch_21 = H=='Fair'? 0 : (H=='Unfair'? 0 : (H=='Lag1'? pswitch: (H=='Flop'? .97 : .25)))
+    var pHeads_1 = H=='Fair'? .5 : (H=='Unfair'? weight : (H=='Lag1'? weight: (H=='Flop'? flopweight : weight)))
+    var pHeads_2 = H=='Fair'? .5 : (H=='Unfair'? 1-weight : (H=='Lag1'? 1-weight: (H=='Flop'? 1-flopweight : 1-weight)))
+      
+    var Coin1 = Categorical({vs: ['H','T'], ps: [pHeads_1, 1-pHeads_1]})
+    var Coin2 = Categorical({vs: ['H','T'], ps: [pHeads_2, 1-pHeads_2]})
+
+    var set_HMM_seq = function(coinsSoFar, k) {
+
+      if (k == seq.length) return
+
+      var newCoin = function(coinsSoFar) {
+        if (coinsSoFar.length == 0) {
+          return flip() ? "Coin1" : "Coin2"
+        } else {
+          var lastCoin = coinsSoFar[coinsSoFar.length - 1]
+          if ((H == 'Lag1' || H == 'Flop') && k != 0) {
+            return lastCoin == "Coin1"?
+              (flip(seq[k-1] == "H"? pSwitch_12: 1 - pSwitch_12) ? "Coin2" : "Coin1") : 
+              (flip(seq[k-1] == "T"? pSwitch_21: 1 - pSwitch_21) ? "Coin1" : "Coin2")
+           
+          } else {
+            return lastCoin == "Coin1"?
+              (flip(pSwitch_12) ? "Coin2" : "Coin1") : 
+              (flip(pSwitch_21) ? "Coin1" : "Coin2")
+          }
+        }
+      }
+      
+      var coin = newCoin(coinsSoFar)
+      var Coin = coin == "Coin1"? Coin1 : Coin2
+//       console.log(coin)
+//       console.log(sample(Coin))
+      observe(Coin, seq[k])
+
+      var coins = coinsSoFar.concat(coin)
+      set_HMM_seq(coins, k + 1)
+    }
+  
+    set_HMM_seq([], 0)
+  
+    return {H: H}
+}
+
+var maxNotFair = function (a, s){ 
+//     var arr = [20, 120, 111, 215, 54, 78]; // use int arrays
+    var arr = a
+//     var max = Math.max.apply(null, arr); // get the max of the array
+    arr.splice(arr.indexOf(s), 1); // remove max from the array
+    return Math.max.apply(null, arr); // get the not fair max
+};
+
+var ratio = function(dist){
+  console.log(Hs)
+  var scores = map(function(H) {return Math.exp(dist.score({"H": H}))}, Hs)
+  var fairScore = Math.exp(dist.score({"H": "Fair"}))
+  var lag1Score = Math.exp(dist.score({"H": "Lag1"}))
+  var notFairScore = maxNotFair(scores, fairScore)
+//   console.log(scores)
+//   console.log(fairScore)
+//   console.log(notFairScore)
+//   return fairScore / notFairScore
+//   return (fairScore + 1) / (1- (fairScore + lag1Score))
+     return lag1Score / (1 - lag1Score)
+
+}
+
+// var seqs = ['HHHH', 'HHHT', 'HHTH', 'HHTT', 'HTHH', 'HTHT', 'HTTH', 'HTTT'];
+var seqs = ['HHHHH', 'HHHHT', 'HHHTH', 'HHHTT', 'HHTHH', 'HHTHT', 'HHTTH', 'HHTTT', 'HTHHH', 'HTHHT', 'HTHTH', 'HTHTT', 'HTTHH', 'HTTHT', 'HTTTH', 'HTTTT'];
+
+var get_dists = function(i, dists) {
+  if (i==seqs.length) return dists
+  
+  var seq = seqs[i];
+  var dist = Infer({method: 'rejection', samples: 2000}, function(){model(seq)})
+  //var score = Math.exp(dist.score({"H": "Lag1"}))
+  return get_dists(i+1, dists.concat(ratio(dist)))
+}
+
+var dists = get_dists(0,[])
+// console.log(dists)
+
+// dist.getDist()
+Categorical({vs:seqs,ps:dists})
+// console.log(Categorical({vs:seqs,ps:dists}))
